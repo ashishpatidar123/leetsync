@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "My LeetCode Topic Syncer",
+  "name": "LeetSync",
   "version": "1.0",
   "description": "Auto-syncs LeetCode solutions to GitHub and updates the topic-wise README.",
   "permissions": [
@@ -19,7 +19,17 @@
       "js": ["content.js"]
     }
   ],
+  "icons": {
+    "16": "icons/icons-16.png",
+    "48": "icons/icons-48.png",
+    "128": "icons/icons-128.png"
+  },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icons-16.png",
+      "48": "icons/icons-48.png",
+      "128": "icons/icons-128.png"
+    }
   }
 }
