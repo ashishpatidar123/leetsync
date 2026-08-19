@@ -31,7 +31,7 @@ Before LeetSync can push code on your behalf, you need to connect it to your Git
 1. Pin the LeetSync extension to your browser toolbar.
 2. Click the LeetSync icon to open the configuration panel.
 
-   ![LeetSync Configuration Panel](icons\ss.png)
+   ![LeetSync Configuration Panel](icons/ss.png)
 
 3. **Enter your GitHub PAT:** Generate a Personal Access Token (Classic) from your GitHub Developer Settings with `repo` permissions and paste it here.
 4. **Enter your Repository Name:** Provide the name of the repository where you want your solutions saved (e.g., `ashishpatidar123/leetcode-solutions`). If the repository does not exist, create it first.
