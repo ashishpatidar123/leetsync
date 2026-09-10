@@ -245,13 +245,13 @@ async function syncLeetCodeToGitHub(slug) {
             const paddedId = padQuestionId(question.questionId);
             const folderName = `${paddedId}-${slug}`;
             const targetDir = `my-solutions/${difficulty}/${folderName}`;
-            
+            const fileName = `solution_${acceptedSub.id}.${fileExtension}`;
             let topicsStr = question.topicTags.map(t => t.name).join(", ");
             // Added Difficulty to README for good measure
             const readmeContent = `# ${question.title}\n\n### Difficulty: ${difficulty}\n### Topics: ${topicsStr}\n\n${question.content}`;
 
             await pushToGithub(settings.gh_username, settings.gh_repo, settings.gh_token, `${targetDir}/README.md`, readmeContent, `Docs: Add description for ${question.title}`);
-            await pushToGithub(settings.gh_username, settings.gh_repo, settings.gh_token, `${targetDir}/solution.${fileExtension}`, codeContent, `Code: Add ${langCode} solution for ${question.title}`);
+            await pushToGithub(settings.gh_username, settings.gh_repo, settings.gh_token, `${targetDir}/${fileName}`, codeContent, `Code: Add ${langCode} solution for ${question.title}`);
             
             // Pass difficulty to the README updater
             await updateRootReadme(settings.gh_username, settings.gh_repo, settings.gh_token, question, folderName, difficulty);
