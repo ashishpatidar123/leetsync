@@ -20,6 +20,7 @@ function base64ToUtf8(str) {
     return decodeURIComponent(escape(atob(str)));
 }
 
+// --- NEW ---------------------------------------------------------------
 // Normalizes code so purely cosmetic edits don't register as "different"
 // code: unifies line endings, trims each line, collapses runs of
 // spaces/tabs to a single space, and drops blank lines entirely.
@@ -42,7 +43,7 @@ async function hashCode(text) {
         .map(b => b.toString(16).padStart(2, "0"))
         .join("");
 }
-
+// -------------------------------------------------------------------------
 
 async function getGithubFileSha(username, repo, token, path) {
     const response = await fetch(`https://api.github.com/repos/${username}/${repo}/contents/${path}`, {
@@ -79,8 +80,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-
-// Solution-hash lives in its own file, .leetcode-sync/hashes.json,
+// --- NEW ---------------------------------------------------------------
+// Solution-hash bookkeeping lives in its own root-level file, hashes.json,
 // completely separate from stats.json. Shape: { [slug]: ["hash1", "hash2", ...] }
 const HASHES_PATH = "hashes.json";
 
@@ -126,7 +127,9 @@ async function pushHashes(username, repo, token, hashes, sha, slug, codeHash) {
         body: JSON.stringify(body)
     });
 }
+// -------------------------------------------------------------------------
 
+// --- UNCHANGED from your original: stats.json stays exactly as it was ---
 async function updateStatsJson(username, repo, token, difficulty, slug) {
     const path = "stats.json";
     let sha = null;
@@ -182,6 +185,7 @@ async function updateStatsJson(username, repo, token, difficulty, slug) {
         console.error("Failed to push stats.json to GitHub");
     }
 }
+// -------------------------------------------------------------------------
 
 async function updateRootReadme(username, repo, token, question, folderName, difficulty) {
     const path = "README.md";
