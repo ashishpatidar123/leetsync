@@ -15,6 +15,35 @@ function padQuestionId(id) {
     return String(id).padStart(4, '0');
 }
 
+// Decodes GitHub's Base64 back into readable text (handling special characters safely)
+function base64ToUtf8(str) {
+    return decodeURIComponent(escape(atob(str)));
+}
+
+// Normalizes code so purely cosmetic edits don't register as "different"
+// code: unifies line endings, trims each line, collapses runs of
+// spaces/tabs to a single space, and drops blank lines entirely.
+function normalizeCode(code) {
+    if (!code) return "";
+    return code
+        .replace(/\r\n/g, "\n")
+        .split("\n")
+        .map(line => line.trim().replace(/[ \t]+/g, " "))
+        .filter(line => line.length > 0)
+        .join("\n");
+}
+
+// SHA-256 hash of a string via the browser's built-in Web Crypto API, so
+// we can store/compare a short fingerprint instead of full source code.
+async function hashCode(text) {
+    const data = new TextEncoder().encode(text);
+    const digestBuffer = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(digestBuffer))
+        .map(b => b.toString(16).padStart(2, "0"))
+        .join("");
+}
+
+
 async function getGithubFileSha(username, repo, token, path) {
     const response = await fetch(`https://api.github.com/repos/${username}/${repo}/contents/${path}`, {
         headers: { "Authorization": `token ${token}` }
@@ -49,9 +78,53 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         syncLeetCodeToGitHub(request.slug);
     }
 });
-// Decodes GitHub's Base64 back into readable text (handling special characters safely)
-function base64ToUtf8(str) {
-    return decodeURIComponent(escape(atob(str)));
+
+
+// Solution-hash lives in its own file, .leetcode-sync/hashes.json,
+// completely separate from stats.json. Shape: { [slug]: ["hash1", "hash2", ...] }
+const HASHES_PATH = ".leetcode-sync/hashes.json";
+
+async function fetchHashes(username, repo, token) {
+    const response = await fetch(`https://api.github.com/repos/${username}/${repo}/contents/${HASHES_PATH}`, {
+        headers: { "Authorization": `token ${token}` }
+    });
+
+    let hashes = {};
+    let sha = null;
+
+    if (response.status === 200) {
+        const data = await response.json();
+        sha = data.sha;
+        try {
+            hashes = JSON.parse(base64ToUtf8(data.content));
+        } catch (e) {
+            console.error("Failed to parse existing hashes.json, starting fresh.");
+        }
+    }
+
+    return { hashes, sha };
+}
+
+async function pushHashes(username, repo, token, hashes, sha, slug, codeHash) {
+    if (!hashes[slug]) hashes[slug] = [];
+    if (!hashes[slug].includes(codeHash)) {
+        hashes[slug].push(codeHash);
+    }
+
+    const body = {
+        message: `Sync: Record solution hash for ${slug}`,
+        content: utf8ToBase64(JSON.stringify(hashes, null, 2))
+    };
+    if (sha) body.sha = sha;
+
+    await fetch(`https://api.github.com/repos/${username}/${repo}/contents/${HASHES_PATH}`, {
+        method: "PUT",
+        headers: {
+            "Authorization": `token ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+    });
 }
 
 async function updateStatsJson(username, repo, token, difficulty, slug) {
@@ -59,7 +132,6 @@ async function updateStatsJson(username, repo, token, difficulty, slug) {
     let sha = null;
     let stats = { solved: 0, easy: 0, medium: 0, hard: 0, solvedSlugs: [] };
 
-    // 1. Fetch the existing stats.json from GitHub
     const response = await fetch(`https://api.github.com/repos/${username}/${repo}/contents/${path}`, {
         headers: { "Authorization": `token ${token}` }
     });
@@ -74,25 +146,21 @@ async function updateStatsJson(username, repo, token, difficulty, slug) {
         }
     }
 
-    // Ensure the array exists (in case you are migrating from an older JSON format)
     if (!stats.solvedSlugs) stats.solvedSlugs = [];
 
-    // 2. Prevent Double-Counting!
     if (stats.solvedSlugs.includes(slug)) {
         console.log(`LeetCode Syncer: ${slug} is already in stats.json. Skipping count update.`);
-        return; 
+        return;
     }
 
-    // 3. Increment the counts
     stats.solvedSlugs.push(slug);
     stats.solved += 1;
-    
+
     const diffLower = difficulty.toLowerCase();
     if (stats[diffLower] !== undefined) {
         stats[diffLower] += 1;
     }
 
-    // 4. Push the updated stats.json back to GitHub
     const body = {
         message: `Stats: Update LeetCode counts for ${slug}`,
         content: utf8ToBase64(JSON.stringify(stats, null, 2))
@@ -137,8 +205,7 @@ async function updateRootReadme(username, repo, token, question, folderName, dif
 
     let isModified = false;
     const safeFolder = encodeURIComponent(folderName);
-    
-    // --- UPDATED: Link points to the difficulty folder inside my-solutions ---
+
     const entry = `- [${question.title}](./my-solutions/${difficulty}/${safeFolder})`;
 
     for (let topic of topics) {
@@ -180,7 +247,6 @@ async function syncLeetCodeToGitHub(slug) {
         if (!settings.gh_token || !settings.gh_repo) return;
 
         try {
-            // --- UPDATED: Added 'difficulty' to the GraphQL query ---
             const problemQuery = {
                 query: `query getQuestionDetail($titleSlug: String!) {
                   question(titleSlug: $titleSlug) {
@@ -220,7 +286,7 @@ async function syncLeetCodeToGitHub(slug) {
             });
             const subListData = await subListRes.json();
             const acceptedSub = subListData.data.questionSubmissionList.submissions.find(sub => sub.statusDisplay === "Accepted");
-            
+
             if (!acceptedSub) return;
 
             // Get Code
@@ -241,22 +307,35 @@ async function syncLeetCodeToGitHub(slug) {
             const codeContent = codeData.data.submissionDetails.code;
             const fileExtension = LANGUAGE_EXTENSIONS[langCode] || "txt";
 
-            // --- UPDATED: Target Directory is now based on Difficulty ---
+            // --- NEW: duplicate / no-real-change detection -----------------
+            const normalizedCode = normalizeCode(codeContent);
+            const codeHash = await hashCode(normalizedCode);
+
+            const { hashes, sha: hashesSha } = await fetchHashes(settings.gh_username, settings.gh_repo, settings.gh_token);
+
+            if (hashes[slug] && hashes[slug].includes(codeHash)) {
+                console.log(`LeetCode Syncer: "${slug}" resubmitted with no real code change (identical, or only whitespace/formatting differs). Skipping commit.`);
+                return;
+            }
+            // -----------------------------------------------------------------
+
             const paddedId = padQuestionId(question.questionId);
             const folderName = `${paddedId}-${slug}`;
             const targetDir = `my-solutions/${difficulty}/${folderName}`;
             const fileName = `solution_${acceptedSub.id}.${fileExtension}`;
             let topicsStr = question.topicTags.map(t => t.name).join(", ");
-            // Added Difficulty to README for good measure
             const readmeContent = `# ${question.title}\n\n### Difficulty: ${difficulty}\n### Topics: ${topicsStr}\n\n${question.content}`;
 
             await pushToGithub(settings.gh_username, settings.gh_repo, settings.gh_token, `${targetDir}/README.md`, readmeContent, `Docs: Add description for ${question.title}`);
             await pushToGithub(settings.gh_username, settings.gh_repo, settings.gh_token, `${targetDir}/${fileName}`, codeContent, `Code: Add ${langCode} solution for ${question.title}`);
-            
-            // Pass difficulty to the README updater
+
             await updateRootReadme(settings.gh_username, settings.gh_repo, settings.gh_token, question, folderName, difficulty);
 
+            // stats.json stays clean, untouched
             await updateStatsJson(settings.gh_username, settings.gh_repo, settings.gh_token, difficulty, slug);
+
+            // hash bookkeeping lives in its own file
+            await pushHashes(settings.gh_username, settings.gh_repo, settings.gh_token, hashes, hashesSha, slug, codeHash);
         } catch (error) {
             console.error("Error syncing to GitHub:", error);
         }
