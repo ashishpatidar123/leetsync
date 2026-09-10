@@ -82,7 +82,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Solution-hash lives in its own file, .leetcode-sync/hashes.json,
 // completely separate from stats.json. Shape: { [slug]: ["hash1", "hash2", ...] }
-const HASHES_PATH = ".leetcode-sync/hashes.json";
+const HASHES_PATH = "hashes.json";
 
 async function fetchHashes(username, repo, token) {
     const response = await fetch(`https://api.github.com/repos/${username}/${repo}/contents/${HASHES_PATH}`, {
